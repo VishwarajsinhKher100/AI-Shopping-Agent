@@ -1,0 +1,25 @@
+[project]
+name = "shopping-agent"
+version = "0.1.0"
+description = "A conversational AI shopping prototype"
+readme = "README.md"
+authors = [
+    { name = "Vishwarajsinh Kher", email = "vishwarajsinh.kher100@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "langchain>=1.0.0",
+    "langchain-core>=1.8.3",
+    "langchain-groq>=1.0.0",
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.0",
+    "streamlit>=1.40.0",
+]
+
+[project.scripts]
+shopping-agent = "shopping_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.13.9,<0.14.0"]
+build-backend = "uv_build"
