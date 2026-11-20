@@ -1,7 +1,5 @@
 import sqlite3
 import os
-import re
-from contextlib import closing
 
 DB_PATH = os.getenv(
     "DB_PATH", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "resources", "store.db"))
@@ -217,88 +215,6 @@ def create_database():
     conn.commit()
     conn.close()
     print(f"Database created at: {DB_PATH}")
-
-
-def search_products(
-    query: str = "",
-    max_price: float | None = None,
-    min_rating: float | None = None,
-    organic: bool = False,
-) -> list[dict]:
-    """Find products matching the requested terms and shopping filters."""
-    where_clauses = []
-    having_clauses = []
-    parameters: list[object] = []
-    terms = re.findall(r"[a-z0-9]+", query.casefold())
-
-    for term in terms:
-        searchable_fields = ["products.name", "products.category"]
-        where_clauses.append(
-            "(" + " OR ".join(f"LOWER({field}) LIKE ?" for field in searchable_fields) + ")"
-        )
-        wildcard_term = f"%{term}%"
-        parameters.extend([wildcard_term] * len(searchable_fields))
-
-    if max_price is not None:
-        where_clauses.append("products.price <= ?")
-        parameters.append(max_price)
-    if min_rating is not None:
-        having_clauses.append("AVG(reviews.rating) >= ?")
-        parameters.append(min_rating)
-    if organic:
-        where_clauses.append("products.is_organic = 1")
-
-    where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-    having_clause = f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""
-    sql = f"""
-        SELECT products.id, products.name, products.category, products.price,
-               products.description, products.is_organic,
-               COALESCE(AVG(reviews.rating), 0) AS average_rating,
-               COUNT(reviews.id) AS review_count
-        FROM products
-        LEFT JOIN reviews ON reviews.product_id = products.id
-        {where_clause}
-        GROUP BY products.id
-        {having_clause}
-        ORDER BY average_rating DESC, products.price ASC
-        LIMIT 20
-    """
-
-    with closing(sqlite3.connect(DB_PATH)) as connection:
-        connection.row_factory = sqlite3.Row
-        rows = connection.execute(sql, parameters).fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_product_by_name(name: str) -> dict | None:
-    """Return a product only when its name matches exactly, ignoring case."""
-    with closing(sqlite3.connect(DB_PATH)) as connection:
-        connection.row_factory = sqlite3.Row
-        row = connection.execute(
-            """
-            SELECT id, name, category, price, description, is_organic
-            FROM products
-            WHERE name = ? COLLATE NOCASE
-            """,
-            (name.strip(),),
-        ).fetchone()
-    return dict(row) if row is not None else None
-
-
-def create_order(product_id: int) -> int | None:
-    """Insert one order for an existing product and return its order ID."""
-    with closing(sqlite3.connect(DB_PATH)) as connection:
-        with connection:
-            cursor = connection.execute(
-                """
-                INSERT INTO orders (product_id, product_name, price)
-                SELECT id, name, price
-                FROM products
-                WHERE id = ?
-                """,
-                (product_id,),
-            )
-            return cursor.lastrowid if cursor.rowcount else None
 
 
 if __name__ == "__main__":

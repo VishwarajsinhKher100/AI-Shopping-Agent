@@ -1,103 +1,66 @@
+"""Streamlit UI for the AI shopping agent. Run with: uv run streamlit run app.py"""
+
+import os
+
 import streamlit as st
 
-from agent import ShoppingAgent
-from setup_db import create_database, create_order
+from agent import build_agent, chat
 
+st.set_page_config(page_title="AI Shopping Agent", page_icon="🛒")
 
 SAMPLE_QUESTIONS = [
-    "Find organic honey under $20 with a 4.5+ rating",
-    "Show me the highest-rated organic snacks",
-    "Find tea under $13",
+    "Find me organic honey under $20 with 4.5+ rating",
+    "Show organic snacks under $10",
+    "What's the best rated coffee?",
+    "Find dairy alternatives rated 4.5 or higher",
+    "Cheapest grains you have?",
 ]
 
-
-@st.cache_resource
-def get_agent() -> ShoppingAgent:
-    return ShoppingAgent()
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 
 @st.cache_resource
-def initialize_database() -> bool:
-    create_database()
-    return True
+def get_agent():
+    return build_agent()
 
 
-def main() -> None:
-    st.set_page_config(page_title="AI Shopping Assistant")
-    initialize_database()
-
-    if "messages" not in st.session_state:
+# ---------- Sidebar ----------
+with st.sidebar:
+    if st.button("➕ New chat", use_container_width=True, type="primary"):
         st.session_state.messages = []
-
-    st.title("AI Shopping Assistant")
-    st.caption("Find products by your preferences, then order the item you choose.")
-
-    with st.sidebar:
-        if st.button("New chat", use_container_width=True):
-            st.session_state.messages = []
-            st.rerun()
-
-        st.subheader("Try asking")
-        for index, question in enumerate(SAMPLE_QUESTIONS):
-            if st.button(question, key=f"sample-{index}", use_container_width=True):
-                st.session_state.pending_prompt = question
-
-    for message_index, message in enumerate(st.session_state.messages):
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message["role"] == "assistant":
-                for product in message.get("products", []):
-                    with st.container(border=True):
-                        st.markdown(f"**{product['name']}** | ${product['price']:.2f}")
-                        st.caption(
-                            f"Rating: {product['average_rating']:.2f} "
-                            f"({product['review_count']} reviews) · "
-                            f"{'Organic' if product['is_organic'] else 'Non-organic'}"
-                        )
-                        st.write(product["description"])
-                        if st.button(
-                            f"Order {product['name']}",
-                            key=f"order-{message_index}-{product['id']}",
-                        ):
-                            order_id = create_order(product["id"])
-                            if order_id is None:
-                                order_message = "That product is no longer available to order. Please search again."
-                            else:
-                                order_message = (
-                                    f"Order #{order_id} placed for **{product['name']}** "
-                                    f"(${product['price']:.2f})."
-                                )
-                            st.session_state.messages.append(
-                                {"role": "assistant", "content": order_message, "products": []}
-                            )
-                            st.rerun()
-
-    prompt = st.chat_input("What would you like to find?")
-    if prompt:
-        st.session_state.pending_prompt = prompt
-
-    pending_prompt = st.session_state.pop("pending_prompt", None)
-    if pending_prompt:
-        st.session_state.messages.append(
-            {"role": "user", "content": pending_prompt, "products": []}
-        )
-        try:
-            response = get_agent().handle_message(pending_prompt)
-        except RuntimeError as error:
-            response_message = str(error)
-            response_products = []
-        else:
-            response_message = response.message
-            response_products = response.products
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": response_message,
-                "products": response_products,
-            }
-        )
         st.rerun()
 
+    st.markdown("#### Try asking")
+    pending = None
+    for q in SAMPLE_QUESTIONS:
+        if st.button(q, use_container_width=True):
+            pending = q
 
-if __name__ == "__main__":
-    main()
+# ---------- Main ----------
+st.title("🛒 AI Shopping Agent")
+st.caption("Search products and place orders by chatting.")
+
+if not os.getenv("GROQ_API_KEY"):
+    st.error("GROQ_API_KEY is not set. Add it to a `.env` file in the project root.")
+    st.stop()
+
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+prompt = st.chat_input("Ask for a product or place an order…") or pending
+
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking…"):
+            try:
+                reply = chat(get_agent(), st.session_state.messages)
+            except Exception as e:
+                reply = f"Sorry, something went wrong: `{e}`"
+        st.markdown(reply)
+    st.session_state.messages.append({"role": "assistant", "content": reply})
